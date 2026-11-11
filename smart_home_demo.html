@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Smart-Home Automation Grid</title>
+<style>
+:root {
+  box-sizing: border-box;
+  --bg: #f6f3ec; --surface: #ffffff; --ink: #2e2a26; --muted: #6f675e;
+  --accent: #b85042; --on: #2f7d5b; --line: #e2dccd; --code-bg: #2e2a26; --code-ink: #f3efe3;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1d1a17; --surface: #2a2622; --ink: #f3efe3; --muted: #b7ad9f;
+    --accent: #e08a78; --on: #5fbf8e; --line: #3d3731; --code-bg: #120f0d; --code-ink: #f3efe3;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1d1a17; --surface: #2a2622; --ink: #f3efe3; --muted: #b7ad9f;
+  --accent: #e08a78; --on: #5fbf8e; --line: #3d3731; --code-bg: #120f0d; --code-ink: #f3efe3;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; font-family: Calibri, "Segoe UI", Arial, sans-serif; background: var(--bg); color: var(--ink);
+  padding: env(safe-area-inset-top, 0px) 16px env(safe-area-inset-bottom, 0px);
+}
+main { max-width: 1100px; margin: 0 auto; padding: 24px 0 40px; }
+h1 { font-family: Cambria, Georgia, serif; font-size: 2rem; margin: 0 0 6px; }
+.sub { color: var(--muted); margin: 0 0 24px; font-size: 1rem; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+}
+.card h3 { margin: 0 0 4px; font-size: 1.1rem; color: var(--accent); }
+.card .kind { font-size: .8rem; color: var(--muted); margin-bottom: 10px; }
+.status { font-size: 1rem; margin: 8px 0 12px; min-height: 1.4em; }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .8rem; font-weight: 700; color: #fff; background: #8a8178; }
+.badge.on { background: var(--on); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+button {
+  font: inherit; font-size: .95rem; padding: 9px 14px; border-radius: 8px; border: 1px solid var(--accent);
+  background: var(--accent); color: #fff; cursor: pointer; min-height: 40px;
+}
+button.ghost { background: transparent; color: var(--accent); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.panel { margin-top: 24px; }
+.panel h2 { font-size: 1.2rem; margin: 0 0 10px; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+.console {
+  background: var(--code-bg); color: var(--code-ink); border-radius: 12px; padding: 16px;
+  font-family: "Courier New", Consolas, monospace; font-size: .9rem; line-height: 1.5;
+  min-height: 220px; max-height: 380px; overflow-y: auto; white-space: pre-wrap;
+}
+.note { color: var(--muted); font-size: .9rem; margin-top: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Smart-Home Automation Grid</h1>
+  <p class="sub">An interactive view of the Java project. Each control runs the same logic as the matching class.</p>
+
+  <div class="grid" id="devices"></div>
+
+  <section class="panel card">
+    <h2>Dashboard controls</h2>
+    <div class="controls">
+      <button id="toggleAll">toggleAll()</button>
+      <button id="clearAll" class="ghost">Turn all off</button>
+    </div>
+    <div class="controls">
+      <label for="dim" style="min-width:160px">dimAllLights(<span id="dimVal">60</span>)</label>
+      <input id="dim" type="range" min="0" max="100" value="60" style="max-width:320px">
+      <button id="applyDim" class="ghost">Apply</button>
+    </div>
+    <div class="controls">
+      <label for="temp" style="min-width:160px">Thermostat target: <span id="tempVal">21.5</span> °C</label>
+      <input id="temp" type="range" min="15" max="30" step="0.5" value="21.5" style="max-width:320px">
+      <button id="applyTemp" class="ghost">Apply</button>
+    </div>
+  </section>
+
+  <section class="panel card">
+    <h2>Motion sensor (Observer pattern)</h2>
+    <p class="note" style="margin-top:0">Triggering motion notifies every registered rule. Each rule checks its trigger and turns on its own device.</p>
+    <div class="controls">
+      <button id="detect">detectMotion()</button>
+      <button id="clear" class="ghost">clearMotion()</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Console output</h2>
+    <div id="console" class="console" aria-live="polite"></div>
+    <div class="controls" style="margin-top:10px">
+      <button id="clearLog" class="ghost">Clear log</button>
+    </div>
+  </section>
+</main>
+
+<script>
+// ---- Mirrors the Java design ----
+
+// IoTDevice contract: turnOn(), turnOff(), getStatus()
+class IoTDevice {
+  constructor(name, kind) { this.name = name; this.kind = kind; this.on = false; }
+  turnOn() { this.on = true; log(this.name + " " + this.onMessage()); }
+  turnOff() { this.on = false; log(this.name + " " + this.offMessage()); }
+  getStatus() { return this.name + ": " + (this.on ? this.onStatus() : this.offStatus()); }
+}
+
+// Capability marker: Dimmable (setBrightness) — only lights have it
+class SmartLight extends IoTDevice {
+  constructor(name) { super(name, "Light"); this.brightness = 100; }
+  onMessage() { return "turned on"; }
+  offMessage() { return "turned off"; }
+  onStatus() { return "ON at " + this.brightness + "%"; }
+  offStatus() { return "OFF at " + this.brightness + "%"; }
+  setBrightness(p) {
+    this.brightness = Math.max(0, Math.min(100, p));
+    log(this.name + " brightness set to " + this.brightness + "%");
+  }
+}
+
+// Capability: TemperatureControllable (setTargetTemperature) — only thermostats have it
+class Thermostat extends IoTDevice {
+  constructor(name) { super(name, "Thermostat"); this.target = 22.0; }
+  onMessage() { return "heating/cooling started"; }
+  offMessage() { return "stopped"; }
+  onStatus() { return "ON target " + this.target + "°C"; }
+  offStatus() { return "OFF target " + this.target + "°C"; }
+  setTargetTemperature(c) {
+    this.target = c;
+    log(this.name + " target set to " + c + "°C");
+  }
+}
+
+class SecurityCamera extends IoTDevice {
+  constructor(name) { super(name, "Camera"); }
+  onMessage() { return "recording started"; }
+  offMessage() { return "recording stopped"; }
+  onStatus() { return "RECORDING"; }
+  offStatus() { return "IDLE"; }
+}
+
+// Observer: MotionSensor notifies listeners
+class MotionSensor {
+  constructor(name) { this.name = name; this.listeners = []; this.motion = false; }
+  addListener(l) { this.listeners.push(l); }
+  detectMotion() {
+    this.motion = true;
+    log("[" + this.name + "] motion detected");
+    this.notify();
+  }
+  clearMotion() { this.motion = false; this.notify(); }
+  notify() { this.listeners.forEach(l => l.onSensorChanged(this)); }
+}
+
+// AutomationRule: listens to one sensor and turns on one device
+class AutomationRule {
+  constructor(description, trigger, target) {
+    this.description = description; this.trigger = trigger; this.target = target;
+  }
+  onSensorChanged(source) {
+    if (source === this.trigger && this.trigger.motion) {
+      log("Rule fired: " + this.description);
+      this.target.turnOn();
+    }
+  }
+}
+
+// ---- Setup, mirroring Main.java ----
+const hallLight = new SmartLight("Hallway Light");
+const porchLight = new SmartLight("Porch Light");
+const thermostat = new Thermostat("Living Room Thermostat");
+const camera = new SecurityCamera("Front Door Camera");
+const devices = [hallLight, porchLight, thermostat, camera];
+
+const frontMotion = new MotionSensor("Front Door Motion");
+frontMotion.addListener(new AutomationRule("Motion at front door turns on hallway light", frontMotion, hallLight));
+frontMotion.addListener(new AutomationRule("Motion at front door turns on porch light", frontMotion, porchLight));
+
+// ---- UI ----
+const consoleEl = document.getElementById("console");
+function log(msg) {
+  consoleEl.textContent += msg + "\n";
+  consoleEl.scrollTop = consoleEl.scrollHeight;
+}
+
+const devicesEl = document.getElementById("devices");
+const cards = new Map();
+
+function buildCards() {
+  devices.forEach(d => {
+    const card = document.createElement("div");
+    card.className = "card";
+    const caps = [];
+    if (d instanceof SmartLight) caps.push("Dimmable");
+    if (d instanceof Thermostat) caps.push("TemperatureControllable");
+    card.innerHTML = `
+      <h3></h3>
+      <div class="kind"></div>
+      <div class="status"></div>
+      <div class="row">
+        <span class="badge"></span>
+        <button class="toggle"></button>
+      </div>`;
+    card.querySelector("h3").textContent = d.name;
+    card.querySelector(".kind").textContent = d.kind + " · " + (caps.length ? caps.join(", ") : "IoTDevice only");
+    card.querySelector(".toggle").addEventListener("click", () => {
+      d.on ? d.turnOff() : d.turnOn();
+      render();
+    });
+    devicesEl.appendChild(card);
+    cards.set(d, card);
+  });
+}
+
+function render() {
+  devices.forEach(d => {
+    const card = cards.get(d);
+    card.querySelector(".status").textContent = d.getStatus();
+    const badge = card.querySelector(".badge");
+    badge.textContent = d.on ? "ON" : "OFF";
+    badge.className = "badge" + (d.on ? " on" : "");
+    card.querySelector(".toggle").textContent = d.on ? "turnOff()" : "turnOn()";
+  });
+}
+
+function printStatus() {
+  log("--- Device status ---");
+  devices.forEach(d => log(d.getStatus()));
+}
+
+// Dashboard actions
+document.getElementById("toggleAll").addEventListener("click", () => {
+  devices.forEach(d => {
+    const off = d.getStatus().includes("OFF") || d.getStatus().includes("IDLE");
+    off ? d.turnOn() : d.turnOff();
+  });
+  render();
+});
+document.getElementById("clearAll").addEventListener("click", () => {
+  devices.forEach(d => { if (d.on) d.turnOff(); });
+  render();
+});
+
+const dim = document.getElementById("dim");
+dim.addEventListener("input", () => document.getElementById("dimVal").textContent = dim.value);
+document.getElementById("applyDim").addEventListener("click", () => {
+  devices.forEach(d => { if (d instanceof SmartLight) d.setBrightness(Number(dim.value)); });
+  render();
+});
+
+const temp = document.getElementById("temp");
+temp.addEventListener("input", () => document.getElementById("tempVal").textContent = temp.value);
+document.getElementById("applyTemp").addEventListener("click", () => {
+  devices.forEach(d => { if (d instanceof Thermostat) d.setTargetTemperature(Number(temp.value)); });
+  render();
+});
+
+document.getElementById("detect").addEventListener("click", () => { frontMotion.detectMotion(); render(); });
+document.getElementById("clear").addEventListener("click", () => { frontMotion.clearMotion(); render(); });
+document.getElementById("clearLog").addEventListener("click", () => consoleEl.textContent = "");
+
+// Initial state, matching the Java demo setup
+buildCards();
+thermostat.setTargetTemperature(21.5);
+devices.forEach(d => { if (d instanceof SmartLight) d.setBrightness(60); });
+devices.forEach(d => d.turnOn());
+printStatus();
+render();
+</script>
+</body>
+</html>
